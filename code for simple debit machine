@@ -1,0 +1,488 @@
+/*
+   FILE          : Assignment_4_detender.ino
+   PROJECT       : PROG8125
+   PROGRAMMER    : Detender singh
+   FIRST VERSION : 2016-07-14
+   DESCRIPTION   : Demonstrates a debit machine banking
+                   transaction that implements a state
+                   machine.
+
+*/
+
+#include <LiquidCrystal.h>                                                                     //Includes lcd commands or functions
+#include <Bounce.h>                                                                            //includes bounce commands or functions which will be used in the program.                     
+
+//Globals
+LiquidCrystal lcd(19, 18, 17, 16, 15, 14);                                                     //create an lcd object
+
+Bounce chequingPb(9, 10);                                                                      //create a pb object
+Bounce savingsPb(10, 10);                                                                      //create a pb object
+Bounce cancelPb(11, 10);                                                                       //create a pb object
+Bounce okPb(12, 10);                                                                           //create a pb object
+
+
+//all global variable decleration which are used in the program
+uint16_t passwordForChequeOrSavings = 0;                                                      //used to save password                                                     
+String inputValue = 'q';
+int flag1 = 1;                                                                                //all flag variables used to print on serial port for single time.
+int flag2 = 1;
+int flag3 = 1;
+int flag4 = 1;
+int flag5 = 1;
+int currentTime = 0;                                                                          //used to save millis value
+int previousTime = 0;
+
+float amount = 0;                                                                              //used to hold the transaction amount
+int noOfAttempts = 0;                                                                          //used to check no. of attempts to enter the pin
+
+//variables used to avoid magic no.s 
+int delayForLcd = 1900;
+
+
+
+// FUNCTION      : displayWelcome()
+// DESCRIPTION   : clears the LCD display and displays
+//                 Welcome on line 1 of the display
+// PARAMETERS    : None
+// RETURNS       : nothing
+void displayWelcome()
+{
+  lcd.clear();
+  lcd.printf("Welcome");
+
+}
+
+
+
+
+// FUNCTION      : displayAmount()
+// DESCRIPTION   : clears the LCD display and displays
+//                 the $amount received on line 1 of the display
+// PARAMETERS    : float - amount to display
+// RETURNS       : nothing
+void displayAmount(float amount)
+{
+  lcd.clear();
+  lcd.printf("$%-9.2f", amount);                                                                     //amount will be shown left adjusted on lcd (because - flag used)
+  Serial.printf("$%9.2f\n", amount);
+}
+
+
+
+// FUNCTION      : displayOkOrCancel()
+// DESCRIPTION   : displays "OK or Cancel?" on line 2 of LCD and serial port
+// PARAMETERS    : none
+// RETURNS       : nothing.
+void displayOkCancel()
+{
+  lcd.setCursor(0, 1);                                                                             //move to second line first position displaying ok or cancel on both lcd and serial port
+  lcd.printf("OK or Cancel?");
+  Serial.println("OK or Cancel?");
+
+}
+
+
+
+// FUNCTION      : displayTransactionCancld()
+// DESCRIPTION   : displays "Trnsaction Cncld" on line 2 of LCD
+//                 and spaces on line 1 for stayes for 1900 seconds
+// PARAMETERS    : none
+// RETURNS       : nothing.
+void displayTransactionCancld()
+{
+  Serial.println("Transaction Cancelled");
+  lcd.setCursor(0, 0);
+  lcd.printf("                    ");
+  lcd.setCursor(0, 1);
+  lcd.printf("Trnsaction Cncld");
+  delay(delayForLcd);
+}
+
+
+
+
+// FUNCTION      : checkIfAmountRecd()
+// DESCRIPTION   : Checks the serial port to see if any chars
+//                 are available. If so, reads the chars using
+//                 the parseFloat method so that the $amount
+//                 is read.
+// PARAMETERS    : none
+// RETURNS       : float, the amount in $ to be debited
+float checkIfAmountRecd()
+{
+  float amountValue = -1;
+  if (Serial.available())                                                                          //if serial buffer has data then it will return float value entered otherwise -1
+  {
+
+    amountValue = (Serial.parseFloat());
+  }
+  return amountValue;
+}
+
+
+
+
+
+
+
+
+
+// FUNCTION      : checkOkOrCancel()
+// DESCRIPTION   : Checks whether the OK or Cancel
+//                 button has been pressed.
+// PARAMETERS    : none
+// RETURNS       : int8_t, 3 if cancel pressed, 4 if ok
+//                 ok pressed. 0 returned if neither
+//                 has pressed.
+int8_t checkOkOrCancel()
+{
+  int8_t buttonIdentifier = 0;
+  if (cancelPb.fallingEdge())
+  {
+
+    buttonIdentifier = 3;                                                                          //then the cancel pushbutton has been pressed
+  }
+  else if (okPb.fallingEdge())
+  {
+
+    buttonIdentifier = 4;                                                                          //then ok pressed
+  }
+
+  return buttonIdentifier;                                                                         //will return 0 if ok or cancel not pressed
+}
+
+
+
+
+
+
+
+
+
+
+// FUNCTION      : checkChequeOrSavings()
+// DESCRIPTION   : Checks whether the cheque or Savings or Cancel
+//                 button has been pressed.
+// PARAMETERS    : none
+// RETURNS       : int8_t, 3 if cancel pressed, 1 if cheque pressed
+//                 , 2 if savings pressed and -1 returned if neither
+//                 has pressed.
+int8_t checkChequeOrSavings()
+{
+  int8_t valueHold = -1;
+  if (chequingPb.fallingEdge())
+  {
+
+    valueHold = 1;                                                                                    //then the Cheque pushbutton has been pressed
+  }
+  else if (savingsPb.fallingEdge())
+  {
+
+    valueHold = 2;                                                                                   //then Savings pressed
+  }
+  else if (cancelPb.fallingEdge())
+  {
+    valueHold = 3;                                                                                   //then cancel pressed.
+  }
+
+  return valueHold;                                                                                  //if neither has pressed , returns -1
+}
+
+
+
+
+
+
+// FUNCTION      : checkIfPasswordRecd()
+// DESCRIPTION   : Checks the serial port to see if any int
+//                 are available. If so, reads the int using
+//                 the parseInt method so that the password has read
+//
+// PARAMETERS    : none
+// RETURNS       : integer 16 bit, the 4digit pin for checking with saved pin
+
+int16_t checkIfPasswordRecd()
+{
+  int16_t recievePin = -1;
+  if (Serial.available())                                                                            //if serial buffer has data then it will return integer value entered otherwise -1
+  {
+    recievePin = (Serial.parseInt());
+  }
+  return recievePin;
+
+}
+
+
+
+
+
+
+// FUNCTION      : checkIfBankRecd()
+// DESCRIPTION   : Checks the serial port to see if any string of data
+//                 is available. If so, read it using
+//                 the readString method so that the confirmation from bank has read
+//
+// PARAMETERS    : none
+// RETURNS       : String, reply from the bank ok or not.
+
+String checkIfBankRecd()
+{
+  String bankReply = 'q';
+  if (Serial.available())                                                                            //if serial buffer has data then it will return String value entered otherwise 'q'
+  {
+    bankReply = Serial.readString();
+  }
+  else
+  {
+    return bankReply;
+  }
+}
+
+
+
+
+
+
+
+void setup()                                                                                         //setup function
+{
+  pinMode(9, INPUT_PULLUP);                                                                          //setting up pinmodes
+  pinMode(10, INPUT_PULLUP);
+  pinMode(11, INPUT_PULLUP);
+  pinMode(12, INPUT_PULLUP);
+
+  Serial.begin(9600);                                                                                //setting virtual serial port with its baudrate 9600
+
+  lcd.begin (16, 2);                                                                                 // set up the LCD's number of columns and rows:
+  lcd.printf("debit Machine");                                                                       //this appears only at the start for 3s
+  delay(3000);
+  lcd.clear();
+  displayWelcome();                                                                                  //call function to display welcome
+}
+
+
+
+void loop()                                                                                          //main program loop
+{
+
+  static int8_t transactionState = 1;                                                                //static variable initialize to 1 first time then it will keep the last value assigned to it
+  int16_t passwordEntered = 0;                                                                       //used for holding password entered value
+  String bankAnswer = 'q';                                                                           //holds the value entered in string form
+  int8_t pbPressed = 0;                                                                               //holds pushbutton 1 = Chequing,2 = savings, 3 = Cancel,4 = OK
+
+  chequingPb.update();                                                                                //update the pb's for each time main loop executes
+  savingsPb.update();
+  cancelPb.update();
+  okPb.update();
+
+
+  /*states:   1   display Welcome Screen, wait for $ amount input from
+                    Serial port
+                2   @ amount Received, waiting for Ok or Cancel button
+                3   OK received, waiting for chequing or Savings button or cancel button
+                4   C or S received, waiting for PIN to be entered from
+                    Serial Port
+                5   Pin Correct, send transaction data to bank. Waiting
+                    for OK back from Bank If OK from Bank received, accepted and Move back to State 1.
+                    but if Cancel Pressed, Display "Transaction Cancelled" back to
+                    state 1
+   */
+
+
+  switch (transactionState)
+  {
+
+    case 1:                                                                                                  //checking if an amount has been received
+      if (flag1)                                                                                             //this if is used to print on serial and lcd only once
+      {
+        displayWelcome();
+        Serial.println("Welcome");
+        flag1 = 0;                                                                                           //flag1 set to 0 so that it will not print displayokcancel command again and again
+      }
+      amount = checkIfAmountRecd();
+      if (amount != -1 )                                                                                     //returns a -1 if an transaction amount has NOT been received on the serial port.
+      {
+        displayAmount(amount);
+        transactionState = 2;
+        flag1 = 1;                                                                                          //flag1 set to 1 for printing the value of displayokcancel next time it will enter into state 1
+      }
+      break;
+
+
+    case 2:                                                                                                  //amount has been received waiting for Ok or Cancel to be pressed.
+      if (flag2)                                                                                             //this if is used to print on serial and lcd only once
+      {
+        displayOkCancel();
+        flag2 = 0;                                                                                           //flag2 set to 0 so that it will not print displayokcancel command again and again
+      }
+      pbPressed = checkOkOrCancel();
+      if (pbPressed != 0)                                                                                    //if ok or cancel pressed then it will enter into if and move to either next state or state 1 depending on ok or cancel button
+      {
+        if (pbPressed == 3)
+        {
+          displayTransactionCancld();
+          transactionState = 1;
+        }
+        else if (pbPressed == 4)
+        {
+          //then ok pressed
+          Serial.println("OK Pressed");
+          transactionState = 3;
+
+        }
+        flag2 = 1;                                                                                            //flag2 set to 1 for printing the value of displayokcancel next time it will enter into state 2
+      }
+      break;
+
+
+    case 3:                                                                                                    //this case will check for cheq button , saving button and cancel button and according to that move to the further state.
+      if (flag3)                                                                                                //this if is used to print on serial and lcd only once
+      {
+        displayAmount(amount);
+        lcd.setCursor(0, 1);                                                                                     //move to second line first position
+        lcd.printf("Cheq or Savings?");
+        Serial.println("Cheque or Savings?");
+        flag3 = 0;                                                                                              //flag3 set to 0 so that it will not print displayokcancel command again and again
+      }
+      pbPressed = checkChequeOrSavings();                                                                      //saving status of buttons in this variable
+
+      if (pbPressed != -1)
+      {
+
+        if (pbPressed == 1)
+        {
+          Serial.println("cheque Pressed");                                                                      //through cheque
+
+          passwordForChequeOrSavings = 4545;                                                                    //if cheque then pin will be 4545
+          transactionState = 4;
+        }
+        else if (pbPressed == 2)
+        {
+
+          Serial.println("savings Pressed");                                                                    //then savings pressed
+          passwordForChequeOrSavings = 1234;                                                                    //if savings then pin will be 1234
+          transactionState = 4;
+        }
+        else if (pbPressed == 3)
+        {
+          displayTransactionCancld();                                                                           //then cancel was pressed.
+
+          transactionState = 1;
+        }
+        flag3 = 1;                                                                                              //flag3 set to 1 for printing the value of displayokcancel next time it will enter into state 3
+      }
+      break;
+
+
+    case 4:
+      if (flag4)                                                                                                //similerly this if is also used to print on serial and lcd only once
+      {
+        displayAmount(amount);
+        lcd.setCursor(0, 1);
+        lcd.printf("Enter 4digit Pin");
+        Serial.println("Enter 4digit Pin");
+        flag4 = 0;                                                                                              //flag4 set to 0 so that it will not print displayokcancel command again and again
+      }
+      passwordEntered = checkIfPasswordRecd();                                                                  //returns a -1 if an transaction amount has NOT been received on the serial port
+      if (passwordEntered != -1 )                                                                               //if password entered is not -1 then compare with saved password
+      {
+        if (passwordEntered == passwordForChequeOrSavings )
+        {
+          transactionState = 5;                                                                                 //if matched, move to state 5 for confirmation
+          previousTime = millis();                                                                              //millis is used to save the moment it went from state 4 to state 5
+        }
+        else if (noOfAttempts < 1)                                                                              //if password entered is incorrect it will display wrong password and will again move to the same state i.e. 4
+        {
+          Serial.println("Wrong password");
+          transactionState = 4;
+          noOfAttempts++;
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.printf(" Wrong password");
+          delay(delayForLcd);
+        }
+        else                                                                                                    //if wrong pin entered more than once than it will display trancstion cancld and move to state 1
+        {
+          noOfAttempts = 0;                                                                                     //resetting this variable again to 0
+          displayTransactionCancld();
+          transactionState = 1;
+        }
+        flag4 = 1;                                                                                              //flag4 set to 1 for printing the value of displayokcancel next time it will enter into state 4
+      }
+      else if (cancelPb.fallingEdge())
+      {
+        displayTransactionCancld();                                                                              //then cancel was pressed and display cancel and move to state 1
+        //then cancel was pressed.
+        transactionState = 1;
+        flag4 = 1;                                                                                               //flag4 set to 1 for printing the value of displayokcancel next time it will enter into state 4
+      }
+
+      break;
+
+
+    case 5:
+      currentTime = millis();                                                                                     //updating time in this variable
+      if (currentTime - previousTime <= 10000)                                                                     //check if it is gone more than 10 sec into this state then do not wait for confirmation from serial port
+      {
+        if (flag5)
+        {
+          Serial.println("Waiting for confirmation.");
+          flag5 = 0;
+        }
+        lcd.setCursor(0, 0);
+        lcd.printf("  Waiting for     ");
+        lcd.setCursor(0, 1);
+        lcd.printf("Confirmation.    ");
+        delay(400);
+        lcd.setCursor(0, 1);
+        lcd.printf("Confirmation..   ");
+        delay(400);
+        lcd.setCursor(0, 1);
+        lcd.printf("Confirmation...  ");
+        delay(400);
+
+        bankAnswer = checkIfBankRecd();                                                                            //return 'q' if not recieved from serial port
+        if (bankAnswer != 'q' )
+        {
+          if (bankAnswer == "ok")                                                                                  //if only ok pressed then accepted and move to state 1 again for next transaction value.
+          {
+
+            Serial.println("Accepted");
+            lcd.clear();
+            lcd.printf("   Accepted");
+            
+            delay(delayForLcd);
+            transactionState = 1;
+          }
+          else                                                                                                      //else print not approved and goto state 1 again
+          {
+            Serial.println("Not Approved, Transaction Cancelled");
+            lcd.setCursor(0, 0);
+            lcd.printf("  Not Approved  ");
+            lcd.setCursor(0, 1);
+            lcd.printf("Trnsaction Cncld");
+            delay(delayForLcd);
+            transactionState = 1;
+          }
+          flag5 = 1;
+        }
+      }
+      else                                                                                                            //if time in waiting state is more than 10 sec then print too long and goto state 1
+      {
+        Serial.println("too long ");
+        lcd.setCursor(0, 0);
+        lcd.printf("  Not Approved  ");
+        lcd.setCursor(0, 1);
+        lcd.printf("took too long");
+        delay(delayForLcd);
+
+        transactionState = 1;
+      }
+      break;
+
+    default:                                                                                                      //default case
+      break;
+  }
+}
+
+
