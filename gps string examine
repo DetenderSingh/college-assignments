@@ -1,0 +1,416 @@
+/*
+   FILE          : assignment5_detender.ino
+   PROJECT       : PROG8125
+   PROGRAMMER    : Detender singh
+   FIRST VERSION : 2016-07-21
+   DESCRIPTION   : It takes the gps string and check for error and if it is ok
+                   then it print out the parsed strings,time,longitude,
+                   latitude,altitude and checksum seperatly on serial port.
+                   
+
+*/
+
+
+
+//sample data to check the output
+// $GPGGA,014729.10,4303.5753,N,08019.0810,W,1,6,1.761,214.682,M,0,M,0,*5D
+//$GPGGA,030418.0,4323.561164,N,08025.783747,W,1,08,0.7,311.2,M,-35.0,M,,*65
+
+
+
+
+
+static char recBuffer [255] = {0};                                                                                                //global variable used to store the input string
+
+
+
+void setup() {
+
+  Serial.begin(9600);                                                                                                              //in set up function serial port initialised to 9600 baudrate
+  delay(1000);                                                                                                                     //delay given to initialize the serial port
+
+}
+
+
+
+/* all function prototypes */
+
+void checkForRecvdChar();
+
+String functionToCalculateChecksumIntoHexString(char* stringStoreTemp);
+int8_t functionToCompareChkSum(char* checkSumCharTemp, char* ageDgpsCharTemp, char* checkSumCalculatedTemp);
+
+void functionToPrintParseValues(char* sentenceIdCharTemp, char* timeCharTemp, char* latitudeCharTemp, char* northCharTemp, char* longitudeCharTemp, char* westCharTemp, char* positionFixCharTemp,
+                                char* satesUsedCharTemp, char* horizontalDilutionCharTemp, char* altitudeCharTemp, char* altUnitsCharTemp, char* gioidSeperationCharTemp, char* inMetersCharTemp, char* ageDgpsCharTemp, char* checkSumCharTemp );
+
+void functionToConvertAndPrintAllAsciiToInt(char* timeCharTemp, char* latitudeCharTemp, char* longitudeCharTemp, char* positionFixCharTemp, char* satesUsedCharTemp, char* horizontalDilutionCharTemp, char* gioidSeperationCharTemp, char* ageDgpsCharTemp);
+
+void functionToPrintTimeValuesSeprately(char* timeCharTemp);
+void functionToPrintLatitudeValuesSeprately(char* latitudeCharTemp);
+void functionToPrintLongitudeValuesSeprately(char* longitudeCharTemp);
+
+
+
+
+void loop()                                                                                                                          //main loop begins
+{
+  float dataIntoAltitude = 0;                                                                                                        //variables used in the this main loop
+  int8_t chksumDecimal = 0;
+
+  String chkSumHexString = '0';
+  int8_t checkSumOk = -1;
+  char  chkSumArray[3] = {'0'};
+  char* checkSumCalculated = NULL;
+
+  char* delim = ",";
+  char* sentenceIdChar = NULL;
+  char* timeChar = NULL;
+  char* latitudeChar = NULL;
+  char* northChar = NULL;
+  char* longitudeChar = NULL;
+  char* westChar = NULL;
+  char* positionFixChar = NULL;
+  char* satesUsedChar = NULL;
+  char* horizontalDilutionChar = NULL;
+  char* altitudeChar = NULL;
+  char* altUnitsChar = NULL;
+  char* gioidSeperationChar = NULL;
+  char* inMetersChar = NULL;
+  char* ageDgpsChar = NULL;
+  char* checkSumChar = NULL;
+ 
+
+
+  checkForRecvdChar();                                                                                                        //function call to recieve data from serial port 
+
+  if (recBuffer [0])                                                                                                          //if data is present in the recBuffer then proceed else keep on looping
+  {
+    chkSumHexString = functionToCalculateChecksumIntoHexString( recBuffer );                                                  //function call to calculate chksum of recieved gps data and saved into variable
+
+    chkSumHexString.toCharArray(chkSumArray, 3);                                                                              //converting the above chksum string to char array type
+
+    checkSumCalculated = chkSumArray;                                                                                        //assigning the pointer to the chkSumArray to checkSumCalclated
+
+    sentenceIdChar = strtok(recBuffer, delim);                                                                                // used strtok function to parse the gps data and saved into different variables according to the meaning
+    timeChar = strtok(NULL, delim);                                                                                          //delim ',' is used to differentiate between strings
+    latitudeChar = strtok(NULL, delim);
+    northChar = strtok(NULL, delim);
+    longitudeChar = strtok(NULL, delim);
+    westChar = strtok(NULL, delim);
+    positionFixChar = strtok(NULL, delim);
+    satesUsedChar = strtok(NULL, delim);
+    horizontalDilutionChar = strtok(NULL, delim);
+    altitudeChar = strtok(NULL, delim);
+    altUnitsChar = strtok(NULL, delim);
+    gioidSeperationChar = strtok(NULL, delim);
+    inMetersChar = strtok(NULL, delim);
+    ageDgpsChar = strtok(NULL, delim);
+    checkSumChar = strtok(NULL, delim);
+
+    checkSumOk = functionToCompareChkSum( checkSumChar, ageDgpsChar, checkSumCalculated );                                    //this function is used to chk data is corrupted or not and returns 0 if chksum calculated and recieved are equal
+
+    if (!checkSumOk)                                                                                                          //if chksum is 0 then proceed
+    {
+      functionToPrintParseValues( sentenceIdChar, timeChar, latitudeChar, northChar, longitudeChar, westChar, positionFixChar, satesUsedChar, horizontalDilutionChar, altitudeChar, altUnitsChar, gioidSeperationChar, inMetersChar, ageDgpsChar, checkSumChar); 
+
+      functionToConvertAndPrintAllAsciiToInt( timeChar, latitudeChar, longitudeChar, positionFixChar, satesUsedChar, horizontalDilutionChar, gioidSeperationChar, ageDgpsChar);
+
+      functionToPrintTimeValuesSeprately(timeChar);
+
+      functionToPrintLatitudeValuesSeprately(latitudeChar);
+
+      functionToPrintLongitudeValuesSeprately(longitudeChar);
+
+      dataIntoAltitude = atof(altitudeChar);                                                                                //function atof used to convert ascii to float and printed the value
+      Serial.printf("\naltitude = %f", dataIntoAltitude );
+
+      chksumDecimal = strtoul(checkSumCalculated, NULL, 16);                                                                //function strtoul used to convert string to unsigned long value and then printed
+      Serial.printf("\nchecksum in decimal = %d", chksumDecimal);
+    }
+    else                                                                                                                    // if chksum not 0 then print
+    {
+      Serial.printf("\ncorrupted data\n");
+    }
+    recBuffer [0] = 0;                                                                                                      //to avoid entering into the if loop again and again when no new data is recived 
+  }
+
+}
+
+
+
+
+
+
+
+
+// FUNCTION      : functionToCompareChkSum()
+// DESCRIPTION   : function copies the checksum value into chksumhexchar variable
+//                 without star, which comes in the begining of the chksum and
+//                 compare it with the calclulated chksum and return zero if both are same.
+//
+// PARAMETERS    : pointer - type char, pointer - type char, pointer - type char
+// RETURNS       : integer 8bit
+
+int8_t functionToCompareChkSum(char* checkSumCharTemp, char* ageDgpsCharTemp, char* checkSumCalculatedTemp)
+{
+  char* chkSumHexChar = NULL;
+  if (*checkSumCharTemp != NULL)                                                                              //this condition is used to check weather checkSumChar is NULL(it happens when ageDgpsChar value is not sent through gps data because it remain same most of the time)
+  {
+    chkSumHexChar = checkSumCharTemp + 1;
+  }
+  else                                                                                                        //if ageDgpsChar got the value of chksum (when the actual value of ageDgpsChar is not sent through gps data then chksum get saved into this variable)
+  {
+    chkSumHexChar = ageDgpsCharTemp + 1;
+  }
+  return strcmp(checkSumCalculatedTemp, chkSumHexChar);                                                        //strcmp returns zero if both are matched.
+}
+
+
+
+
+
+// FUNCTION      : functionToPrintTimeValuesSeprately()
+// DESCRIPTION   : displays time values, like- hr, min, sec, serperatly on serial port
+//
+// PARAMETERS    : pointer - type char
+// RETURNS       : nothing.
+
+void functionToPrintTimeValuesSeprately(char* timeCharTemp)
+{
+  int i = 0;
+  Serial.printf("\ntime=> ");
+  for (i = 0; i <= 1; i++)                                                                                    //this loop is used to print hr values
+  {
+    Serial.printf("%c", *(timeCharTemp + i));
+  }
+  Serial.printf(" hr, ");
+
+
+  for (i = 2; i <= 3; i++)                                                                                    //this loop is used to print min values
+  {
+    Serial.printf("%c", *(timeCharTemp + i));
+  }
+  Serial.printf(" min, ");
+
+
+  for (i = 4; i <= 8; i++)                                                                                    //this loop is used to print secnds values
+  {
+    Serial.printf("%c", *(timeCharTemp + i));
+  }
+  Serial.printf(" secnds");
+
+}
+
+
+
+
+
+
+// FUNCTION      : functionToPrintLatitudeValuesSeprately()
+// DESCRIPTION   : displays latitude values, like- degree, sec, decimal degree, serperatly on serial port
+//
+// PARAMETERS    : pointer - type char
+// RETURNS       : nothing.
+
+void functionToPrintLatitudeValuesSeprately(char* latitudeCharTemp)
+{
+
+  int j = 0;
+
+  Serial.printf("\nlatitude=>");
+  for (j = 0; j <= 1; j++)                                                                                  //this loop is used to print latitude degree values
+  {
+    Serial.printf("%c", *(latitudeCharTemp + j));
+  }
+  Serial.printf(" deg, ");
+
+
+  for (j = 2; j <= 3; j++)                                                                                   //this loop is used to print latitude min values
+  {
+    Serial.printf("%c", *(latitudeCharTemp + j));
+  }
+  Serial.printf(" min, ");
+
+
+  for (j = 5; j <= 8; j++)                                                                                    //this loop is used to print latitude decimal degree values
+  {
+    Serial.printf("%c", *(latitudeCharTemp + j));
+  }
+  Serial.printf(" decimal degrees");
+
+}
+
+
+
+
+
+
+// FUNCTION      : functionToPrintLongitudeValuesSeprately()
+// DESCRIPTION   : displays longitude values, like- degree, sec, decimal degree, serperatly on serial port
+//
+// PARAMETERS    : pointer - type char
+// RETURNS       : nothing.
+
+void functionToPrintLongitudeValuesSeprately(char* longitudeCharTemp)
+{
+
+  int k = 0;
+  Serial.printf("\nlongitude=>");
+  for ( k = 0; k <= 2; k++)                                                                                     //similerly this loop is used to print longitude degree values
+  {
+    Serial.printf("%c", *(longitudeCharTemp + k));
+  }
+  Serial.printf(" degree, ");
+
+
+  for ( k = 3; k <= 4; k++)                                                                                     // this loop is used to print longitude sec values
+  {
+    Serial.printf("%c", *(longitudeCharTemp + k));
+  }
+  Serial.printf(" sec, ");
+
+
+  for ( k = 6; k <= 9; k++)                                                                                    // this loop is used to print longitude decimal degree values
+  {
+    Serial.printf("%c", *(longitudeCharTemp + k));
+  }
+  Serial.printf(" decimal degree");
+
+}
+
+
+
+
+
+
+// FUNCTION      : functionToCalculateChecksumIntoHexString()
+// DESCRIPTION   : This function calculate the chksum and return the hex value of chk sum
+//
+//
+// PARAMETERS    : pointer- char type
+// RETURNS       : String
+String functionToCalculateChecksumIntoHexString(char* stringStoreTemp)
+{
+
+  String chkSumHexTemp = '0';
+  int calCheckSum = 0;
+
+  for (int t = 1; t < strlen(stringStoreTemp) - 3; t++)                                                 //loop used to xor the all the data byte by byte and saving xor integer output into calchksum, this is done only before '*' character( so that is why upto string length -3)
+  {
+    calCheckSum ^= *(stringStoreTemp + t);
+  }
+
+  chkSumHexTemp = String(calCheckSum, HEX);                                                            //converting chksum int to hex
+
+  return chkSumHexTemp;                                                                                //returning the hex string of chksum
+}
+
+
+
+
+
+// FUNCTION      : functionToPrintParseValues()
+// DESCRIPTION   : displays all the pasred strings on serial port
+//
+// PARAMETERS    : 15 pointer variables - type char
+// RETURNS       : nothing.
+
+void functionToPrintParseValues(char* sentenceIdCharTemp, char* timeCharTemp, char* latitudeCharTemp, char* northCharTemp, char* longitudeCharTemp, char* westCharTemp, char* positionFixCharTemp,
+                                char* satesUsedCharTemp, char* horizontalDilutionCharTemp, char* altitudeCharTemp, char* altUnitsCharTemp, char* gioidSeperationCharTemp, char* inMetersCharTemp, char* ageDgpsCharTemp, char* checkSumCharTemp )
+{
+  Serial.printf("\n%s\n", sentenceIdCharTemp);
+  Serial.println(timeCharTemp);
+  Serial.println(latitudeCharTemp);
+  Serial.println(northCharTemp);
+  Serial.println(longitudeCharTemp);
+  Serial.println(westCharTemp);
+  Serial.println(positionFixCharTemp);
+  Serial.println(satesUsedCharTemp);
+  Serial.println(horizontalDilutionCharTemp);
+  Serial.println(altitudeCharTemp);
+  Serial.println(altUnitsCharTemp);
+  Serial.println(gioidSeperationCharTemp);
+  Serial.println(inMetersCharTemp);
+  Serial.println(ageDgpsCharTemp);
+  Serial.println(checkSumCharTemp);
+}
+
+
+
+
+
+
+// FUNCTION      : functionToConvertAndPrintAllAsciiToInt()
+// DESCRIPTION   : convert the pasred strings into int and display all on serial port.
+//
+// PARAMETERS    : 8 pointer variables - type char
+// RETURNS       : nothing.
+
+void functionToConvertAndPrintAllAsciiToInt(char* timeCharTemp, char* latitudeCharTemp, char* longitudeCharTemp,
+    char* positionFixCharTemp, char* satesUsedCharTemp, char* horizontalDilutionCharTemp, char* gioidSeperationCharTemp, char* ageDgpsCharTemp)
+{
+  int timeDigitTemp = atoi(timeCharTemp);                                                                                                        //int variables declared and assigned with the return values of function
+  int latDigitTemp = atoi(latitudeCharTemp);                                                                                                     //atoi which takes char* as parameter and return integer
+  int longDigitTemp = atoi(longitudeCharTemp);
+  int positionDigitTemp = atoi(positionFixCharTemp);
+  int satesDigitTemp = atoi(satesUsedCharTemp);
+  int dilutionDigitTemp = atoi(horizontalDilutionCharTemp);
+  int  gioidDigitTemp = atoi(gioidSeperationCharTemp);
+  int ageDigitTemp = atoi(ageDgpsCharTemp);
+  Serial.printf("\ntime in int = %d\n", timeDigitTemp);                                                                                          //printing the values on serial port
+  Serial.printf("\nlatitude in int = %d\n", latDigitTemp);
+  Serial.printf("\nlongitude in int = %d\n", longDigitTemp);
+  Serial.printf("\nposition in int = %d\n", positionDigitTemp);
+  Serial.printf("\nno of satelites in int = %d\n", satesDigitTemp);
+  Serial.printf("\ndilution in int = %d\n", dilutionDigitTemp);
+  Serial.printf("\ngioid in int = %d\n", gioidDigitTemp);
+  Serial.printf("\nage in int = %d\n", ageDigitTemp);
+}
+
+
+
+
+
+
+// FUNCTION      : checkForRecvdChar()
+// DESCRIPTION   : This function waits for a $ signifying the start of transmission
+//                 places the bytes that follow into an array called recBuffer[]
+//                 until a CR(carriage return) is received.
+//
+// PARAMETERS    : none
+// RETURNS       : nothing.
+
+void checkForRecvdChar()
+{
+  static int recByteCtr = 0;                                                                //declare and initialize the rec'd byte counter variable
+  char byteRead = '0';
+
+  while (Serial.available())                                                                //then let's read the byte
+  {
+    if (recByteCtr == 0)                                                                    //then check to see if it's the start of a message
+    {
+      byteRead = Serial.read();                                                             //read the byte
+      if (byteRead == '$')
+      {
+        recBuffer[recByteCtr] = byteRead;                                                   //copy the byte read into the rec buffer
+        recByteCtr++;
+      }
+    }
+    if (recByteCtr != 0 )                                               //then we're reading bytes after receiving an STX in the message stream
+    {
+      byteRead = Serial.read();                                                              //read the byte
+      if (byteRead != 13 && recByteCtr <= 250)                                               //13 = CR(carriage return) and if recByte is les than 250 then proceed otherwise no
+      {
+        recBuffer[recByteCtr] = byteRead;                                                     //copy the byte read into the rec buffer
+        recByteCtr++;
+      }
+      else                                                                                     //recbyte == 13
+      {
+        recBuffer[recByteCtr] = '\0';                                                         //null terminate the rec'd string in rec buffer
+        recByteCtr = 0;
+        Serial.printf("\n%s", recBuffer);
+      }
+    }
+  }
+
+}
